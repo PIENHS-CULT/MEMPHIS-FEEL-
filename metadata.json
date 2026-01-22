@@ -1,0 +1,7 @@
+{
+  "name": "MuseAI Studio",
+  "description": "A high-end AI music creation platform featuring automated mastering, intelligent prompt engineering, and folk-tech instrument synthesis.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
