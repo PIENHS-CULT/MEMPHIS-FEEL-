@@ -1,15 +1,16 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Use direct initialization inside functions as per guidelines to ensure the most up-to-date API key.
 
 /**
  * Advanced Prompt Engineering with Thinking Mode
  */
 export async function generateDeepMusicPrompt(userDescription: string) {
-  const ai = getAI();
+  // Create a new instance right before the call as per guidelines.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3.1-pro-preview',
     contents: `Act as a world-class prompt architect. Develop an extremely detailed technical music specification for AI generation. 
     User Idea: "${userDescription}"
     Analyze genre trends, instrument synthesis, and structural dynamics.
@@ -32,12 +33,56 @@ export async function generateDeepMusicPrompt(userDescription: string) {
 }
 
 /**
+ * Refines raw transcription into polished song lyrics using Gemini Pro.
+ */
+export async function refineLyrics(rawText: string) {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-pro-preview',
+    contents: `Transform the following raw transcription or voice note into professional song lyrics. 
+    Maintain the original theme but improve flow, rhythm, and metaphors.
+    Format clearly with [Verse], [Chorus], etc.
+    Raw Text: "${rawText}"`,
+    config: {
+      thinkingConfig: { thinkingBudget: 16000 }
+    }
+  });
+  return response.text;
+}
+
+/**
+ * Analyzes text to suggest a musical vibe and production style.
+ */
+export async function analyzeMood(text: string) {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-pro-preview',
+    contents: `Analyze the mood and theme of these lyrics. Suggest a specific music genre (like Phonk, Industrial, or Cyber-Folk), 3 instrumentation ideas, and a production 'vibe'.
+    Text: "${text}"
+    Respond in JSON format.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          genre: { type: Type.STRING },
+          instrumentation: { type: Type.ARRAY, items: { type: Type.STRING } },
+          vibe: { type: Type.STRING }
+        }
+      }
+    }
+  });
+  return JSON.parse(response.text);
+}
+
+/**
  * Generates a short, calming producer tip for ambient mode.
  */
 export async function generateAmbientTip() {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
+    // Updated to correct model alias as per guidelines
+    model: 'gemini-3.1-flash-lite',
     contents: "Give me one short, poetic, and calming piece of advice for a music producer struggling with creative block. Max 15 words."
   });
   return response.text;
@@ -47,7 +92,7 @@ export async function generateAmbientTip() {
  * Image Generation with Aspect Ratio Control
  */
 export async function generateCoverArt(prompt: string, aspectRatio: string = "1:1") {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: { parts: [{ text: `High-quality phonk style album cover: ${prompt}. Aesthetic: Gritty, dark, explosive, neon accents.` }] },
@@ -56,6 +101,7 @@ export async function generateCoverArt(prompt: string, aspectRatio: string = "1:
     },
   });
   
+  // Correctly iterate through parts to find the image part
   const imagePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
   return imagePart?.inlineData?.data ? `data:image/png;base64,${imagePart.inlineData.data}` : null;
 }
@@ -64,7 +110,7 @@ export async function generateCoverArt(prompt: string, aspectRatio: string = "1:
  * Video Generation (Veo 3.1)
  */
 export async function generateVisuals(prompt: string, isPortrait: boolean = false) {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
     prompt: `Abstract visual loop for a phonk music track: ${prompt}. Dark atmosphere, glitch effects, intense movement.`,
@@ -81,58 +127,19 @@ export async function generateVisuals(prompt: string, isPortrait: boolean = fals
   }
 
   const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+  // Append API key when fetching from the download link as per guidelines
   const res = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
   const blob = await res.blob();
   return URL.createObjectURL(blob);
-}
-
-/**
- * Animate Image to Video (Veo)
- */
-export async function animateImage(base64Image: string, prompt: string) {
-  const ai = getAI();
-  let operation = await ai.models.generateVideos({
-    model: 'veo-3.1-fast-generate-preview',
-    prompt: prompt,
-    image: { imageBytes: base64Image, mimeType: 'image/png' },
-    config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
-  });
-
-  while (!operation.done) {
-    await new Promise(resolve => setTimeout(resolve, 10000));
-    operation = await ai.operations.getVideosOperation({ operation: operation });
-  }
-
-  const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-  const res = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
-}
-
-/**
- * Image Understanding / Analysis
- */
-export async function analyzeCoverInspiration(base64Image: string) {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: {
-      parts: [
-        { inlineData: { data: base64Image, mimeType: 'image/png' } },
-        { text: "Analyze this image's aesthetic and musical vibe. Suggest a phonk or industrial prompt based on its visual energy." }
-      ]
-    }
-  });
-  return response.text;
 }
 
 /**
  * Market Research with Search Grounding
  */
 export async function musicMarketResearch(query: string) {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.5-flash",
     contents: `Analyze current trending sub-genres and market demand for: ${query}. Focus on streaming trends (Spotify/TikTok).`,
     config: { tools: [{ googleSearch: {} }] },
   });
@@ -146,9 +153,9 @@ export async function musicMarketResearch(query: string) {
  * Text-to-Speech (TTS)
  */
 export async function speakFeedback(text: string) {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
+    model: "gemini-3.1-flash-tts-preview",
     contents: [{ parts: [{ text: `Read this technical analysis clearly: ${text}` }] }],
     config: {
       responseModalities: [Modality.AUDIO],
@@ -167,19 +174,7 @@ export async function speakFeedback(text: string) {
   source.start();
 }
 
-/**
- * Fast Chat (Low Latency)
- */
-export async function fastAssistantChat(prompt: string) {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: prompt
-  });
-  return response.text;
-}
-
-// Existing Utils
+// Utils
 export function decode(base64: string) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
@@ -202,19 +197,14 @@ export async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampl
   return buffer;
 }
 
-// Original core functions
-export async function generateMusicPrompt(userDescription: string) {
-  return generateDeepMusicPrompt(userDescription);
-}
-
 export async function transcribeAudio(base64Audio: string) {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3.5-flash',
     contents: {
       parts: [
-        { inlineData: { mimeType: 'audio/pcm;rate=16000', data: base64Audio } },
-        { text: "Transcribe exactly." }
+        { inlineData: { mimeType: 'audio/wav', data: base64Audio } },
+        { text: "Transcribe exactly. If there is music, describe the style too." }
       ]
     }
   });
@@ -222,13 +212,13 @@ export async function transcribeAudio(base64Audio: string) {
 }
 
 export async function detectChords(base64Audio: string) {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3.5-flash',
     contents: {
       parts: [
-        { inlineData: { mimeType: 'audio/pcm;rate=16000', data: base64Audio } },
-        { text: "Return JSON array of chords." }
+        { inlineData: { mimeType: 'audio/wav', data: base64Audio } },
+        { text: "Return JSON array of chords detected in the audio." }
       ]
     },
     config: {
@@ -240,18 +230,18 @@ export async function detectChords(base64Audio: string) {
 }
 
 export async function analyzeTrackForMastering(trackTitle: string, genre: string) {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3.1-pro-preview',
     contents: `Analyze mastering for ${trackTitle} in ${genre}.`,
   });
   return response.text;
 }
 
 export async function connectLiveCoProducer(callbacks: any) {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   return ai.live.connect({
-    model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+    model: 'gemini-3.1-flash-live-preview',
     callbacks,
     config: {
       responseModalities: [Modality.AUDIO],
@@ -259,6 +249,53 @@ export async function connectLiveCoProducer(callbacks: any) {
       systemInstruction: 'You are a phonk music producer. Be brief, cool, and technical.',
     },
   });
+}
+
+/**
+ * Analyzes cover art for inspiration using Gemini vision capabilities.
+ */
+export async function analyzeCoverInspiration(base64Image: string) {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: {
+      parts: [
+        { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
+        { text: "Analyze this image for musical inspiration. Describe the aesthetic, color palette, and possible music genres or vibes it suggests." }
+      ]
+    }
+  });
+  return response.text;
+}
+
+/**
+ * Animates an image using Veo 3.1.
+ */
+export async function animateImage(base64Image: string, prompt: string) {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  let operation = await ai.models.generateVideos({
+    model: 'veo-3.1-fast-generate-preview',
+    prompt: prompt || 'Animate this image',
+    image: {
+      imageBytes: base64Image,
+      mimeType: 'image/png',
+    },
+    config: {
+      numberOfVideos: 1,
+      resolution: '720p',
+      aspectRatio: '1:1'
+    }
+  });
+
+  while (!operation.done) {
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    operation = await ai.operations.getVideosOperation({ operation: operation });
+  }
+
+  const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+  const res = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }
 
 export function encodePCM(data: Float32Array): string {

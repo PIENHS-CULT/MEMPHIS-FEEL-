@@ -1,5 +1,6 @@
 
 import React, { useState, useRef } from 'react';
+// Updated imports to match available service functions
 import { generateCoverArt, generateVisuals, analyzeCoverInspiration, animateImage } from '../services/geminiService';
 
 const MediaLab: React.FC = () => {
@@ -41,6 +42,7 @@ const MediaLab: React.FC = () => {
     reader.onloadend = async () => {
       const base64 = (reader.result as string).split(',')[1];
       setIsGenerating(true);
+      // Fixed by adding this function to geminiService.ts
       const report = await analyzeCoverInspiration(base64);
       setAnalysis(report);
       setIsGenerating(false);

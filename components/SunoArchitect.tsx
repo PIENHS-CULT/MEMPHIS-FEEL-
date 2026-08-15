@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
-import { generateMusicPrompt } from '../services/geminiService';
+// Changed to correct exported function name
+import { generateDeepMusicPrompt } from '../services/geminiService';
 import { FOLK_TECH_INSTRUMENTS, STYLE_PRESETS } from '../constants';
 
 const SunoArchitect: React.FC = () => {
@@ -12,7 +13,8 @@ const SunoArchitect: React.FC = () => {
     if (!description.trim()) return;
     setIsGenerating(true);
     try {
-      const promptData = await generateMusicPrompt(description);
+      // Corrected function call
+      const promptData = await generateDeepMusicPrompt(description);
       setResult(promptData);
     } catch (e) {
       console.error(e);

@@ -1,20 +1,28 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { transcribeAudio, connectLiveCoProducer, encodePCM, decodePCM, decodeAudioData, detectChords, generateAmbientTip, speakFeedback } from '../services/geminiService';
+import { transcribeAudio, connectLiveCoProducer, encodePCM, decodePCM, decodeAudioData, detectChords, generateAmbientTip, speakFeedback, refineLyrics, analyzeMood } from '../services/geminiService';
 import { SavedStudioProject, FXState, StudioTemplate, FXPreset } from '../types';
 
 const Studio: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveActive, setIsLiveActive] = useState(false);
   const [transcription, setTranscription] = useState<string | null>(null);
+  const [moodData, setMoodData] = useState<any>(null);
   const [detectedChordsList, setDetectedChordsList] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
   const [trackTitle, setTrackTitle] = useState("New Session #471");
   const [activeAnalysisMode, setActiveAnalysisMode] = useState<'transcribe' | 'chords'>('transcribe');
   const [savedSessions, setSavedSessions] = useState<SavedStudioProject[]>([]);
   const [templates, setTemplates] = useState<StudioTemplate[]>([]);
   const [fxPresets, setFxPresets] = useState<FXPreset[]>([]);
   
+  // MIDI States
+  const [midiDevices, setMidiDevices] = useState<string[]>([]);
+  const [lastMidiNote, setLastMidiNote] = useState<number | null>(null);
+  const [isMidiSupported, setIsMidiSupported] = useState(false);
+  const activeOscillators = useRef<Map<number, { osc: OscillatorNode, gain: GainNode }>>(new Map());
+
   // FX Matrix & Chain Order
   const [fx, setFx] = useState<FXState>({
     reverb: { active: false, mix: 0.4, decay: 2.5 },
@@ -44,6 +52,99 @@ const Studio: React.FC = () => {
 
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+
+  // MIDI Initialization
+  useEffect(() => {
+    if (navigator.requestMIDIAccess) {
+      setIsMidiSupported(true);
+      navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+    }
+  }, []);
+
+  const onMIDISuccess = (midiAccess: any) => {
+    const inputs = midiAccess.inputs.values();
+    const devices: string[] = [];
+    for (let input = inputs.next(); input && !input.done; input = inputs.next()) {
+      input.value.onmidimessage = handleMIDIMessage;
+      devices.push(input.value.name);
+    }
+    setMidiDevices(devices);
+
+    midiAccess.onstatechange = (e: any) => {
+      const updatedInputs = midiAccess.inputs.values();
+      const updatedDevices: string[] = [];
+      for (let input = updatedInputs.next(); input && !input.done; input = updatedInputs.next()) {
+        updatedDevices.push(input.value.name);
+      }
+      setMidiDevices(updatedDevices);
+    };
+  };
+
+  const onMIDIFailure = () => {
+    console.error("Could not access MIDI devices.");
+    setIsMidiSupported(false);
+  };
+
+  const midiNoteToFreq = (note: number) => {
+    return 440 * Math.pow(2, (note - 69) / 12);
+  };
+
+  const handleMIDIMessage = (message: any) => {
+    const [command, note, velocity] = message.data;
+    // Note On
+    if (command === 144 && velocity > 0) {
+      playMIDINote(note, velocity);
+      setLastMidiNote(note);
+    } 
+    // Note Off
+    else if (command === 128 || (command === 144 && velocity === 0)) {
+      stopMIDINote(note);
+    }
+  };
+
+  const playMIDINote = (note: number, velocity: number) => {
+    if (!outputAudioCtxRef.current) {
+      outputAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const ctx = outputAudioCtxRef.current;
+    
+    // Stop if already playing this note
+    if (activeOscillators.current.has(note)) {
+      stopMIDINote(note);
+    }
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    // Phonk-style sawtooth for gritty bass/leads
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(midiNoteToFreq(note), ctx.currentTime);
+    
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime((velocity / 127) * 0.2, ctx.currentTime + 0.02);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start();
+    activeOscillators.current.set(note, { osc, gain });
+  };
+
+  const stopMIDINote = (note: number) => {
+    const voice = activeOscillators.current.get(note);
+    if (voice && outputAudioCtxRef.current) {
+      const ctx = outputAudioCtxRef.current;
+      voice.gain.gain.cancelScheduledValues(ctx.currentTime);
+      voice.gain.gain.setValueAtTime(voice.gain.gain.value, ctx.currentTime);
+      voice.gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.1);
+      setTimeout(() => {
+        voice.osc.stop();
+        voice.osc.disconnect();
+        voice.gain.disconnect();
+      }, 150);
+      activeOscillators.current.delete(note);
+    }
+  };
 
   // Persistent storage logic
   useEffect(() => {
@@ -216,11 +317,9 @@ const Studio: React.FC = () => {
     setTemplates(updated);
   };
 
-  // FX Preset Logic
   const handleSaveFxPreset = (type: 'reverb' | 'delay' | 'distortion') => {
     const name = prompt(`Enter a name for this ${type} preset:`, `Cool ${type}`);
     if (!name) return;
-    
     const params = JSON.parse(JSON.stringify(fx[type]));
     const newPreset: FXPreset = {
       id: Date.now().toString(),
@@ -245,6 +344,20 @@ const Studio: React.FC = () => {
     const updated = fxPresets.filter(p => p.id !== id);
     localStorage.setItem('museai_fx_presets', JSON.stringify(updated));
     setFxPresets(updated);
+  };
+
+  const handleRefineLyrics = async () => {
+    if (!transcription) return;
+    setIsRefining(true);
+    try {
+      const refined = await refineLyrics(transcription);
+      setTranscription(refined);
+      const mood = await analyzeMood(refined);
+      setMoodData(mood);
+    } catch (e) {
+      console.error(e);
+    }
+    setIsRefining(false);
   };
 
   const handleTranscribeFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -380,55 +493,32 @@ const Studio: React.FC = () => {
     const isFirst = index === 0;
     const isLast = index === chainOrder.length - 1;
     const presetsForType = fxPresets.filter(p => p.type === type);
-
     const commonHeader = (label: string, iconColor: string) => (
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
-           <button onClick={() => moveFx(index, 'left')} disabled={isFirst} className={`p-1 rounded bg-slate-800 text-slate-500 hover:text-white transition-colors disabled:opacity-0`}>
-             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
-           </button>
+           <button onClick={() => moveFx(index, 'left')} disabled={isFirst} className={`p-1 rounded bg-slate-800 text-slate-500 hover:text-white transition-colors disabled:opacity-0`}><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg></button>
            <h5 className="text-[11px] font-black text-slate-300 uppercase tracking-widest">{label}</h5>
-           <button onClick={() => moveFx(index, 'right')} disabled={isLast} className={`p-1 rounded bg-slate-800 text-slate-500 hover:text-white transition-colors disabled:opacity-0`}>
-             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-           </button>
+           <button onClick={() => moveFx(index, 'right')} disabled={isLast} className={`p-1 rounded bg-slate-800 text-slate-500 hover:text-white transition-colors disabled:opacity-0`}><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg></button>
         </div>
         <div className="flex items-center gap-2">
-           <button onClick={() => handleSaveFxPreset(type as any)} className="text-slate-600 hover:text-indigo-400 transition-colors" title="Save Preset">
-             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5h14M5 5v14h14V5M5 5l14 14m-14 0l14-14"></path></svg>
-           </button>
-           <button onClick={() => toggleFx(type as any)} className={`w-8 h-4 rounded-full relative transition-colors ${fx[type as keyof FXState].active ? iconColor : 'bg-slate-800'}`}>
-             <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${fx[type as keyof FXState].active ? 'right-0.5' : 'left-0.5'}`}></div>
-           </button>
+           <button onClick={() => handleSaveFxPreset(type as any)} className="text-slate-600 hover:text-indigo-400 transition-colors" title="Save Preset"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5h14M5 5v14h14V5M5 5l14 14m-14 0l14-14"></path></svg></button>
+           <button onClick={() => toggleFx(type as any)} className={`w-8 h-4 rounded-full relative transition-colors ${fx[type as keyof FXState].active ? iconColor : 'bg-slate-800'}`}><div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${fx[type as keyof FXState].active ? 'right-0.5' : 'left-0.5'}`}></div></button>
         </div>
       </div>
     );
-
     const renderPresetSelector = () => (
       <div className="mt-4 pt-4 border-t border-slate-800/50">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Local Presets</p>
-        </div>
+        <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-2">Local Presets</p>
         <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto custom-scrollbar">
           {presetsForType.length > 0 ? presetsForType.map(p => (
             <div key={p.id} className="group relative flex items-center">
-              <button 
-                onClick={() => handleLoadFxPreset(p)}
-                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[8px] font-bold text-slate-400 hover:text-white transition-all"
-              >
-                {p.name}
-              </button>
-              <button 
-                onClick={() => handleDeleteFxPreset(p.id)}
-                className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-red-600 text-white rounded-full w-3 h-3 flex items-center justify-center transition-opacity"
-              >
-                <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-              </button>
+              <button onClick={() => handleLoadFxPreset(p)} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[8px] font-bold text-slate-400 hover:text-white transition-all">{p.name}</button>
+              <button onClick={() => handleDeleteFxPreset(p.id)} className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-red-600 text-white rounded-full w-3 h-3 flex items-center justify-center transition-opacity"><svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
             </div>
           )) : <p className="text-[8px] italic text-slate-700">None</p>}
         </div>
       </div>
     );
-
     if (type === 'reverb') {
       return (
         <div key="reverb" className={`relative p-5 rounded-2xl border transition-all ${fx.reverb.active ? 'bg-indigo-500/5 border-indigo-500/40 ring-1 ring-indigo-500/20' : 'bg-slate-950/40 border-slate-800'}`}>
@@ -476,11 +566,7 @@ const Studio: React.FC = () => {
           <div className="absolute top-1/4 right-1/4 w-[40vw] h-[40vw] bg-rose-500/5 blur-[120px] rounded-full animate-pulse delay-1000"></div>
           <div className="absolute bottom-10 left-10 p-10 max-w-md">
             <h2 className="text-indigo-400 font-black uppercase tracking-[0.4em] text-xs mb-4 opacity-50">Ambient Recovery Mode</h2>
-            {ambientTip && (
-              <p className="text-white text-2xl font-light italic leading-relaxed animate-in fade-in slide-in-from-left-4 duration-1000">
-                "{ambientTip}"
-              </p>
-            )}
+            {ambientTip && <p className="text-white text-2xl font-light italic leading-relaxed animate-in fade-in slide-in-from-left-4 duration-1000">"{ambientTip}"</p>}
           </div>
         </div>
       )}
@@ -488,48 +574,20 @@ const Studio: React.FC = () => {
       {/* Main Studio Console */}
       <div className={`bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 md:p-12 flex flex-col lg:flex-row items-center gap-12 shadow-2xl relative overflow-hidden transition-all duration-1000 ${isAmbientMode ? 'opacity-40 scale-[0.98] border-indigo-500/20' : ''}`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] -z-0"></div>
-        
         <div className="w-full lg:w-1/3 flex flex-col items-center gap-4">
           <div className="relative group">
             <div className={`w-48 h-48 rounded-full bg-slate-800 border-4 transition-all duration-300 ${isRecording ? 'border-rose-500 animate-pulse' : isLiveActive ? 'border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)]' : 'border-slate-700'} flex items-center justify-center overflow-hidden relative shadow-2xl`}>
-               {isRecording || isLiveActive ? (
-                 <canvas ref={visualizerCanvasRef} width="192" height="192" className="w-full h-full rounded-full opacity-60" />
-               ) : (
-                 <svg className={`w-16 h-16 ${isRecording ? 'text-rose-500' : isLiveActive ? 'text-emerald-500' : 'text-slate-600'}`} fill="currentColor" viewBox="0 0 24 24">
-                   <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                 </svg>
-               )}
+               {isRecording || isLiveActive ? <canvas ref={visualizerCanvasRef} width="192" height="192" className="w-full h-full rounded-full opacity-60" /> : <svg className={`w-16 h-16 ${isRecording ? 'text-rose-500' : isLiveActive ? 'text-emerald-500' : 'text-slate-600'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>}
             </div>
             <div className="flex flex-col gap-3 mt-8 items-center">
               <div className="flex flex-col md:flex-row gap-3 items-center">
-                <button 
-                  onClick={isRecording ? stopRecording : startRecording}
-                  className={`w-48 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all ${isRecording ? 'bg-rose-600 text-white' : 'bg-white text-slate-900 hover:scale-105'}`}
-                >
-                  {isRecording ? 'Stop Recording' : activeAnalysisMode === 'transcribe' ? 'Voice Snapshot' : 'Chord Scan'}
-                </button>
-                
+                <button onClick={isRecording ? stopRecording : startRecording} className={`w-48 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all ${isRecording ? 'bg-rose-600 text-white' : 'bg-white text-slate-900 hover:scale-105'}`}>{isRecording ? 'Stop Recording' : activeAnalysisMode === 'transcribe' ? 'Voice Snapshot' : 'Chord Scan'}</button>
                 {!isRecording && activeAnalysisMode === 'transcribe' && (
-                  <>
-                    <button 
-                      onClick={() => fileInputTranscribeRef.current?.click()}
-                      className="px-6 py-3 bg-slate-800 text-slate-200 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all border border-slate-700 flex items-center gap-2 group"
-                      title="Upload and transcribe an existing audio file"
-                    >
-                      <svg className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4-4m4 4v12"></path></svg>
-                      <span>Transcribe File</span>
-                    </button>
-                    <input type="file" ref={fileInputTranscribeRef} onChange={handleTranscribeFile} className="hidden" accept="audio/*" />
-                  </>
+                  <button onClick={() => fileInputTranscribeRef.current?.click()} className="px-6 py-3 bg-slate-800 text-slate-200 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all border border-slate-700 flex items-center gap-2 group" title="Upload and transcribe an existing audio file"><svg className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4-4m4 4v12"></path></svg><span>File</span></button>
                 )}
+                <input type="file" ref={fileInputTranscribeRef} onChange={handleTranscribeFile} className="hidden" accept="audio/*" />
               </div>
-              <button 
-                onClick={startLiveCoProducer}
-                className={`w-48 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-2 ${isLiveActive ? 'bg-emerald-600 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
-              >
-                <span className={`w-2 h-2 rounded-full ${isLiveActive ? 'bg-white animate-ping' : 'bg-indigo-400'}`}></span>
-                {isLiveActive ? 'Co-Producer Live' : 'Talk to AI Producer'}
-              </button>
+              <button onClick={startLiveCoProducer} className={`w-48 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-2 ${isLiveActive ? 'bg-emerald-600 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}><span className={`w-2 h-2 rounded-full ${isLiveActive ? 'bg-white animate-ping' : 'bg-indigo-400'}`}></span>{isLiveActive ? 'Co-Producer Live' : 'Talk to AI Producer'}</button>
             </div>
           </div>
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Active Monitor: {isLiveActive ? 'Live Bridge' : 'Local Mic'}</p>
@@ -541,12 +599,8 @@ const Studio: React.FC = () => {
               <div className="flex items-center gap-4">
                 <h3 className="text-3xl font-black text-white mb-1 outline-none" contentEditable suppressContentEditableWarning onBlur={(e) => setTrackTitle(e.currentTarget.innerText)}>{trackTitle}</h3>
                 <div className="flex gap-2">
-                  <button onClick={handleSaveSession} className="p-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors border border-indigo-500/20 group" title="Save Recorded Session">
-                    <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-                  </button>
-                  <button onClick={handleSaveTemplate} className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg transition-colors border border-amber-500/20 group" title="Save Studio Blueprint">
-                    <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg>
-                  </button>
+                  <button onClick={handleSaveSession} className="p-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors border border-indigo-500/20 group" title="Save Recorded Session"><svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg></button>
+                  <button onClick={handleSaveTemplate} className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg transition-colors border border-amber-500/20 group" title="Save Studio Blueprint"><svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg></button>
                 </div>
               </div>
               <div className="flex gap-4 mt-2">
@@ -554,7 +608,13 @@ const Studio: React.FC = () => {
                 <button onClick={() => setActiveAnalysisMode('chords')} className={`text-[10px] font-mono uppercase font-bold tracking-tighter px-3 py-1 rounded-full border transition-all ${activeAnalysisMode === 'chords' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>Chord Detection</button>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right flex items-center gap-4">
+              {transcription && (
+                <button onClick={handleRefineLyrics} disabled={isRefining} className={`px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${isRefining ? 'opacity-50 animate-pulse' : 'hover:bg-indigo-600 hover:text-white'}`}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a2 2 0 00-1.96 1.414l-.727 2.182a2 2 0 00.313 2.01l1.45 1.74a2 2 0 002.35.48l2.256-1.128a2 2 0 001.022-2.387l-.477-2.387z"></path></svg>
+                  {isRefining ? 'Refining...' : 'Refine Lyrics'}
+                </button>
+              )}
               <p className="text-indigo-400 font-mono text-sm uppercase font-bold tracking-tighter">AI Analysis Queue: <span className={isProcessing || isLiveActive ? "text-emerald-500" : "text-slate-600"}>{isProcessing ? "Processing..." : isLiveActive ? "Streaming" : "Idle"}</span></p>
             </div>
           </div>
@@ -567,7 +627,29 @@ const Studio: React.FC = () => {
                 Analyzing musical signal...
               </div>
             ) : activeAnalysisMode === 'transcribe' ? (
-              transcription ? <p className="text-slate-200 leading-relaxed font-medium">{transcription}</p> : isLiveActive ? <div className="text-emerald-400/80 animate-pulse font-mono text-sm">> Listening... Ask me about your arrangement or mixing challenges.</div> : <p className="text-slate-600 italic">Record a session to generate lyrics, or start the Live Producer to get real-time musical advice.</p>
+              <div className="space-y-4">
+                {transcription ? (
+                  <div className="animate-in fade-in duration-500">
+                    <p className="text-slate-200 leading-relaxed font-medium whitespace-pre-line">{transcription}</p>
+                    {moodData && (
+                      <div className="mt-6 pt-6 border-t border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-4">
+                         <div className="p-3 bg-red-600/10 rounded-xl border border-red-900/20">
+                           <p className="text-[8px] font-black uppercase text-red-500 mb-1">Detected Vibe</p>
+                           <p className="text-xs font-bold text-slate-300">{moodData.genre}</p>
+                         </div>
+                         <div className="p-3 bg-indigo-600/10 rounded-xl border border-indigo-900/20">
+                           <p className="text-[8px] font-black uppercase text-indigo-400 mb-1">Instrumentation</p>
+                           <p className="text-xs font-bold text-slate-300">{moodData.instrumentation?.join(', ')}</p>
+                         </div>
+                         <div className="p-3 bg-slate-800 rounded-xl">
+                           <p className="text-[8px] font-black uppercase text-slate-500 mb-1">Production Tip</p>
+                           <p className="text-[10px] font-medium text-slate-400 italic">"{moodData.vibe}"</p>
+                         </div>
+                      </div>
+                    )}
+                  </div>
+                ) : isLiveActive ? <div className="text-emerald-400/80 animate-pulse font-mono text-sm">&gt; Listening... Ask me about your arrangement or mixing challenges.</div> : <p className="text-slate-600 italic">Record a session to generate lyrics, or start the Live Producer to get real-time musical advice.</p>}
+              </div>
             ) : (
               <div className="flex flex-wrap gap-4">
                 {detectedChordsList.length > 0 ? detectedChordsList.map((chord, idx) => (
@@ -590,47 +672,64 @@ const Studio: React.FC = () => {
               <div className="w-10 h-10 bg-indigo-500/20 text-indigo-400 rounded-xl flex items-center justify-center"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg></div>
               <h4 className="text-xl font-black text-white uppercase tracking-tighter italic">FX <span className="text-indigo-500">Chain</span></h4>
             </div>
-            <div className="flex gap-2">
-               <span className="px-3 py-1 bg-slate-950 border border-slate-800 rounded-full text-[9px] font-mono text-indigo-400 uppercase tracking-widest">Serial Flow Monitoring</span>
-            </div>
+            <div className="flex gap-2"><span className="px-3 py-1 bg-slate-950 border border-slate-800 rounded-full text-[9px] font-mono text-indigo-400 uppercase tracking-widest">Serial Flow Monitoring</span></div>
           </div>
-          
           <div className="flex flex-col md:flex-row items-stretch gap-4 md:gap-2">
             {chainOrder.map((type, index) => (
               <React.Fragment key={type}>
-                <div className="flex-1">
-                  {renderFxModule(type, index)}
-                </div>
-                {index < chainOrder.length - 1 && (
-                  <div className="hidden md:flex items-center justify-center px-2">
-                    <svg className="w-6 h-6 text-slate-700 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
-                    </svg>
-                  </div>
-                )}
+                <div className="flex-1">{renderFxModule(type, index)}</div>
+                {index < chainOrder.length - 1 && <div className="hidden md:flex items-center justify-center px-2"><svg className="w-6 h-6 text-slate-700 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg></div>}
               </React.Fragment>
             ))}
           </div>
         </div>
 
-        {/* Blueprints Panel */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col h-full max-h-[500px]">
+        {/* MIDI Control Panel */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col h-full max-h-[500px] relative overflow-hidden">
+          <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-emerald-500/10 blur-[50px]"></div>
           <div className="flex items-center justify-between mb-6">
-            <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Studio Blueprints</h4>
-            <span className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400">{templates.length} total</span>
+            <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+               MIDI Interface
+               <span className={`w-2 h-2 rounded-full ${midiDevices.length > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`}></span>
+            </h4>
+            <span className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400">{midiDevices.length} Connectors</span>
           </div>
-          <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-            {templates.length > 0 ? templates.map((template) => (
-              <div key={template.id} className="p-4 bg-slate-950/50 border border-slate-800 rounded-xl hover:border-amber-500/30 transition-all group relative">
-                <div className="flex justify-between items-start mb-2"><h5 className="text-sm font-bold text-slate-300 truncate pr-8">{template.name}</h5><button onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(template.id); }} className="absolute top-4 right-4 text-slate-600 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button></div>
-                <div className="flex gap-2 mb-4">
-                   {template.chainOrder?.map(t => (
-                     <span key={t} className={`w-2 h-2 rounded-full ${t === 'reverb' ? 'bg-indigo-500' : t === 'delay' ? 'bg-emerald-500' : 'bg-rose-500'} ${template.fx[t as keyof FXState].active ? 'opacity-100 shadow-[0_0_8px_currentColor]' : 'opacity-20'}`}></span>
-                   ))}
+          
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+            {isMidiSupported ? (
+              <>
+                <div className="space-y-2">
+                  {midiDevices.length > 0 ? midiDevices.map((device, i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800">
+                      <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                      <span className="text-[10px] font-bold text-slate-300 truncate">{device}</span>
+                    </div>
+                  )) : (
+                    <p className="text-[10px] text-slate-600 italic text-center py-4">Scan complete. No hardware detected.</p>
+                  )}
                 </div>
-                <button onClick={() => handleLoadTemplate(template)} className="w-full py-1.5 bg-slate-800 hover:bg-amber-600 text-slate-400 hover:text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Deploy Blueprint</button>
+
+                {lastMidiNote && (
+                  <div className="mt-auto pt-6 border-t border-slate-800 animate-in fade-in slide-in-from-bottom-2">
+                    <p className="text-[9px] font-black text-slate-600 uppercase mb-3">Active Signal</p>
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl flex items-center justify-between">
+                       <div>
+                         <p className="text-[8px] text-emerald-500 font-black uppercase">Note Frequency</p>
+                         <p className="text-lg font-mono font-black text-white">{midiNoteToFreq(lastMidiNote).toFixed(1)} <span className="text-emerald-500 text-xs italic">Hz</span></p>
+                       </div>
+                       <div className="w-12 h-12 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-xl shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                         {lastMidiNote}
+                       </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-600 text-center gap-4">
+                <svg className="w-10 h-10 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                <p className="text-[10px] font-bold leading-relaxed">Web MIDI not supported in this browser environment.</p>
               </div>
-            )) : <div className="flex flex-col items-center justify-center py-12 text-slate-600 text-center"><svg className="w-8 h-8 opacity-20 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138z"></path></svg><p className="text-xs italic">No blueprints saved.</p></div>}
+            )}
           </div>
         </div>
       </div>
@@ -651,7 +750,6 @@ const Studio: React.FC = () => {
             </div>
           ))}
         </div>
-        {/* Saved Sessions list */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col h-fit max-h-[500px]">
           <div className="flex items-center justify-between mb-6"><h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Saved Sessions</h4><span className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400">{savedSessions.length} total</span></div>
           <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
