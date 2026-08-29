@@ -22,6 +22,7 @@ const Studio: React.FC = () => {
   const [lastMidiNote, setLastMidiNote] = useState<number | null>(null);
   const [isMidiSupported, setIsMidiSupported] = useState(false);
   const activeOscillators = useRef<Map<number, { osc: OscillatorNode, gain: GainNode }>>(new Map());
+  const midiAccessRef = useRef<any>(null);
 
   // FX Matrix & Chain Order
   const [fx, setFx] = useState<FXState>({
@@ -59,9 +60,24 @@ const Studio: React.FC = () => {
       setIsMidiSupported(true);
       navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
     }
+    return () => {
+      const midiAccess = midiAccessRef.current;
+      if (midiAccess) {
+        midiAccess.onstatechange = null;
+        const inputs = midiAccess.inputs.values();
+        for (let input = inputs.next(); input && !input.done; input = inputs.next()) {
+          input.value.onmidimessage = null;
+        }
+      }
+      activeOscillators.current.forEach(({ osc, gain }) => {
+        try { osc.stop(); osc.disconnect(); gain.disconnect(); } catch (e) {}
+      });
+      activeOscillators.current.clear();
+    };
   }, []);
 
   const onMIDISuccess = (midiAccess: any) => {
+    midiAccessRef.current = midiAccess;
     const inputs = midiAccess.inputs.values();
     const devices: string[] = [];
     for (let input = inputs.next(); input && !input.done; input = inputs.next()) {
@@ -74,6 +90,7 @@ const Studio: React.FC = () => {
       const updatedInputs = midiAccess.inputs.values();
       const updatedDevices: string[] = [];
       for (let input = updatedInputs.next(); input && !input.done; input = updatedInputs.next()) {
+        input.value.onmidimessage = handleMIDIMessage;
         updatedDevices.push(input.value.name);
       }
       setMidiDevices(updatedDevices);
@@ -447,7 +464,9 @@ const Studio: React.FC = () => {
   const stopLiveSession = () => {
     if (liveSessionRef.current) { liveSessionRef.current.close(); liveSessionRef.current = null; }
     inputAudioCtxRef.current?.close();
+    inputAudioCtxRef.current = null;
     outputAudioCtxRef.current?.close();
+    outputAudioCtxRef.current = null;
     setIsLiveActive(false);
     stopVisualizer();
   };
@@ -709,7 +728,7 @@ const Studio: React.FC = () => {
                   )}
                 </div>
 
-                {lastMidiNote && (
+                {lastMidiNote !== null && (
                   <div className="mt-auto pt-6 border-t border-slate-800 animate-in fade-in slide-in-from-bottom-2">
                     <p className="text-[9px] font-black text-slate-600 uppercase mb-3">Active Signal</p>
                     <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl flex items-center justify-between">
@@ -762,6 +781,30 @@ const Studio: React.FC = () => {
             )) : <div className="flex flex-col items-center justify-center py-12 text-slate-600 text-center"><svg className="w-8 h-8 opacity-20 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><p className="text-xs italic">No saved history yet.</p></div>}
           </div>
         </div>
+      </div>
+
+      {/* Studio Blueprints */}
+      <div className={`bg-slate-900 border border-slate-800 rounded-3xl p-6 transition-all duration-1000 ${isAmbientMode ? 'opacity-20' : ''}`}>
+        <div className="flex items-center justify-between mb-6">
+          <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Studio Blueprints</h4>
+          <span className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400">{templates.length} saved</span>
+        </div>
+        {templates.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {templates.map((template) => (
+              <div key={template.id} className="p-4 bg-slate-950/50 border border-slate-800 rounded-xl hover:border-amber-500/30 transition-all group relative">
+                <div className="flex justify-between items-start mb-2">
+                  <h5 className="text-sm font-bold text-slate-300 truncate pr-8">{template.name}</h5>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(template.id); }} className="absolute top-4 right-4 text-slate-600 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                </div>
+                <p className="text-[10px] text-slate-500 font-mono mb-4">{new Date(template.timestamp).toLocaleDateString()}</p>
+                <button onClick={() => handleLoadTemplate(template)} className="w-full py-1.5 bg-slate-800 hover:bg-amber-600 text-slate-400 hover:text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Load Blueprint</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs italic text-slate-600 text-center py-6">No blueprints saved yet. Use the amber save icon above the track title to capture your FX chain and mode.</p>
+        )}
       </div>
     </div>
   );
