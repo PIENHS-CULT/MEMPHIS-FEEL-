@@ -1,14 +1,16 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 
-// Use direct initialization inside functions as per guidelines to ensure the most up-to-date API key.
+// Shared factory so client construction (API key source, future options) lives in one place.
+function getAI() {
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+}
 
 /**
  * Advanced Prompt Engineering with Thinking Mode
  */
 export async function generateDeepMusicPrompt(userDescription: string) {
-  // Create a new instance right before the call as per guidelines.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
     contents: `Act as a world-class prompt architect. Develop an extremely detailed technical music specification for AI generation. 
@@ -36,7 +38,7 @@ export async function generateDeepMusicPrompt(userDescription: string) {
  * Refines raw transcription into polished song lyrics using Gemini Pro.
  */
 export async function refineLyrics(rawText: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
     contents: `Transform the following raw transcription or voice note into professional song lyrics. 
@@ -54,7 +56,7 @@ export async function refineLyrics(rawText: string) {
  * Analyzes text to suggest a musical vibe and production style.
  */
 export async function analyzeMood(text: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
     contents: `Analyze the mood and theme of these lyrics. Suggest a specific music genre (like Phonk, Industrial, or Cyber-Folk), 3 instrumentation ideas, and a production 'vibe'.
@@ -79,7 +81,7 @@ export async function analyzeMood(text: string) {
  * Generates a short, calming producer tip for ambient mode.
  */
 export async function generateAmbientTip() {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     // Updated to correct model alias as per guidelines
     model: 'gemini-3.1-flash-lite',
@@ -92,7 +94,7 @@ export async function generateAmbientTip() {
  * Image Generation with Aspect Ratio Control
  */
 export async function generateCoverArt(prompt: string, aspectRatio: string = "1:1") {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: { parts: [{ text: `High-quality phonk style album cover: ${prompt}. Aesthetic: Gritty, dark, explosive, neon accents.` }] },
@@ -110,7 +112,7 @@ export async function generateCoverArt(prompt: string, aspectRatio: string = "1:
  * Video Generation (Veo 3.1)
  */
 export async function generateVisuals(prompt: string, isPortrait: boolean = false) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
     prompt: `Abstract visual loop for a phonk music track: ${prompt}. Dark atmosphere, glitch effects, intense movement.`,
@@ -137,7 +139,7 @@ export async function generateVisuals(prompt: string, isPortrait: boolean = fals
  * Market Research with Search Grounding
  */
 export async function musicMarketResearch(query: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-3.5-flash",
     contents: `Analyze current trending sub-genres and market demand for: ${query}. Focus on streaming trends (Spotify/TikTok).`,
@@ -153,7 +155,7 @@ export async function musicMarketResearch(query: string) {
  * Text-to-Speech (TTS)
  */
 export async function speakFeedback(text: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-tts-preview",
     contents: [{ parts: [{ text: `Read this technical analysis clearly: ${text}` }] }],
@@ -198,7 +200,7 @@ export async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampl
 }
 
 export async function transcribeAudio(base64Audio: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.5-flash',
     contents: {
@@ -212,7 +214,7 @@ export async function transcribeAudio(base64Audio: string) {
 }
 
 export async function detectChords(base64Audio: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.5-flash',
     contents: {
@@ -230,7 +232,7 @@ export async function detectChords(base64Audio: string) {
 }
 
 export async function analyzeTrackForMastering(trackTitle: string, genre: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
     contents: `Analyze mastering for ${trackTitle} in ${genre}.`,
@@ -239,7 +241,7 @@ export async function analyzeTrackForMastering(trackTitle: string, genre: string
 }
 
 export async function connectLiveCoProducer(callbacks: any) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   return ai.live.connect({
     model: 'gemini-3.1-flash-live-preview',
     callbacks,
@@ -255,7 +257,7 @@ export async function connectLiveCoProducer(callbacks: any) {
  * Analyzes cover art for inspiration using Gemini vision capabilities.
  */
 export async function analyzeCoverInspiration(base64Image: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.5-flash',
     contents: {
@@ -272,7 +274,7 @@ export async function analyzeCoverInspiration(base64Image: string) {
  * Animates an image using Veo 3.1.
  */
 export async function animateImage(base64Image: string, prompt: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAI();
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
     prompt: prompt || 'Animate this image',
