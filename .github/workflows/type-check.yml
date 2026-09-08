@@ -5,8 +5,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
+        if: ${{ hashFiles('package.json') != '' }}
         with:
-          node-version: '20'
-      - run: npm ci
-      - run: npx tsc --noEmit
+          node-version: '22'
+          cache: npm
+
+      - name: Install deps (lockfile)
+        if: ${{ hashFiles('package.json') != '' && (hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '') }}
+        run: npm ci
+
+      - name: Install deps (no lockfile)
+        if: ${{ hashFiles('package.json') != '' && hashFiles('package-lock.json') == '' && hashFiles('npm-shrinkwrap.json') == '' }}
+        run: npm install
+
+      - name: Type check
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npx tsc --noEmit
