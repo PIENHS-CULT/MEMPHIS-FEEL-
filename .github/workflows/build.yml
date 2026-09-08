@@ -6,7 +6,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        if: ${{ hashFiles('package.json') != '' }}
         with:
-          node-version: '20'
-      - run: npm ci
-      - run: npm run build
+          node-version: '22'
+      - if: ${{ hashFiles('package.json') != '' && (hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '') }}
+        run: npm ci
+      - if: ${{ hashFiles('package.json') != '' && hashFiles('package-lock.json') == '' && hashFiles('npm-shrinkwrap.json') == '' }}
+        run: npm install
+      - if: ${{ hashFiles('package.json') != '' }}
+        run: npm run build
