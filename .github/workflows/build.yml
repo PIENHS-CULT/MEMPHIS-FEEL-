@@ -5,8 +5,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - id: node_project
+        run: |
+          if [ -f package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
+        if: steps.node_project.outputs.exists == 'true'
         with:
           node-version: '20'
-      - run: npm ci
-      - run: npm run build
+      - if: steps.node_project.outputs.exists == 'true'
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+      - if: steps.node_project.outputs.exists == 'true'
+        run: npm run build
