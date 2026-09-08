@@ -5,8 +5,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - id: detect-node-project
+        run: |
+          if [ -f package.json ]; then
+            echo "has_package_json=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_package_json=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f package-lock.json ]; then
+            echo "has_package_lock=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_package_lock=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
+        if: steps.detect-node-project.outputs.has_package_json == 'true'
         with:
           node-version: '20'
       - run: npm ci
+        if: steps.detect-node-project.outputs.has_package_lock == 'true'
+      - run: npm install
+        if: steps.detect-node-project.outputs.has_package_json == 'true' && steps.detect-node-project.outputs.has_package_lock != 'true'
       - run: npx tsc --noEmit
+        if: steps.detect-node-project.outputs.has_package_json == 'true'
