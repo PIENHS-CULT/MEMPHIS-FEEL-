@@ -9,4 +9,5 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: npm run build
+      - if: ${{ hashFiles('package.json') != '' && hashFiles('index.html', 'vite.config.*') != '' }}
+        run: npm run build
