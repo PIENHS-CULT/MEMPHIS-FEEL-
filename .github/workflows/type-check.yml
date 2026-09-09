@@ -6,8 +6,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node
         if: ${{ hashFiles('package.json') != '' }}
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
@@ -22,4 +23,4 @@ jobs:
 
       - name: Type check
         if: ${{ hashFiles('package.json') != '' }}
-        run: npx tsc --noEmit
+        run: npm run typecheck
