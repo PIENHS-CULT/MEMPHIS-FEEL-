@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { AppView } from './types';
 import LandingPage from './components/LandingPage';
 import Catalog from './components/Catalog';
@@ -39,7 +40,12 @@ const App: React.FC = () => {
   };
 
   if (view === 'landing') {
-    return <LandingPage onEnter={() => setView('catalog')} />;
+    return (
+      <>
+        <LandingPage onEnter={() => setView('catalog')} />
+        <Analytics />
+      </>
+    );
   }
 
   return (
@@ -51,6 +57,7 @@ const App: React.FC = () => {
           {renderView()}
         </main>
       </div>
+      <Analytics />
     </div>
   );
 };
