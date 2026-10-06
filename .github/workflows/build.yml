@@ -6,10 +6,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: ${{ hashFiles('package.json') != '' }}
+        if: ${{ hashFiles('package.json') != '' && (hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '') }}
         with:
           node-version: '22'
           cache: npm
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('package.json') != '' && hashFiles('package-lock.json') == '' && hashFiles('npm-shrinkwrap.json') == '' }}
+        with:
+          node-version: '22'
       - name: Install deps (lockfile)
         if: ${{ hashFiles('package.json') != '' && (hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '') }}
         run: npm ci
