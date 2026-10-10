@@ -49,16 +49,18 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className={`flex h-screen overflow-hidden transition-colors duration-500 ${theme === 'dark' ? 'bg-slate-950 text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
-      <Sidebar currentView={view} onViewChange={setView} theme={theme} />
-      <div className="flex-1 flex flex-col relative overflow-hidden">
-        <Header currentView={view} theme={theme} onToggleTheme={toggleTheme} />
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">
-          {renderView()}
-        </main>
+    <>
+      <div className={`flex h-screen overflow-hidden transition-colors duration-500 ${theme === 'dark' ? 'bg-slate-950 text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
+        <Sidebar currentView={view} onViewChange={setView} theme={theme} />
+        <div className="flex-1 flex flex-col relative overflow-hidden">
+          <Header currentView={view} theme={theme} onToggleTheme={toggleTheme} />
+          <main className="flex-1 overflow-y-auto p-4 md:p-8">
+            {renderView()}
+          </main>
+        </div>
       </div>
       <Analytics />
-    </div>
+    </>
   );
 };
 
