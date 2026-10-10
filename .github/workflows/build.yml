@@ -13,15 +13,20 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@v4
-        if: steps.node_project.outputs.exists == 'true'
+        if: ${{ hashFiles('package.json') != '' && (hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '') }}
         with:
-          node-version: '20'
-      - if: steps.node_project.outputs.exists == 'true'
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-      - if: steps.node_project.outputs.exists == 'true'
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('package.json') != '' && hashFiles('package-lock.json') == '' && hashFiles('npm-shrinkwrap.json') == '' }}
+        with:
+          node-version: '22'
+      - name: Install deps (lockfile)
+        if: ${{ hashFiles('package.json') != '' && (hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '') }}
+        run: npm ci
+      - name: Install deps (no lockfile)
+        if: ${{ hashFiles('package.json') != '' && hashFiles('package-lock.json') == '' && hashFiles('npm-shrinkwrap.json') == '' }}
+        run: npm install
+      - name: Build
+        if: ${{ hashFiles('package.json') != '' && hashFiles('index.html', 'vite.config.*') != '' }}
         run: npm run build
