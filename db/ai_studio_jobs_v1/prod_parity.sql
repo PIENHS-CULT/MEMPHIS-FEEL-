@@ -6,6 +6,8 @@
 --      identyczny = brak dryfu od dnia przeglądu (warunek wdrożenia).
 --   2. Replika harnessu (stan "przed", po rollbacku) z tą samą search_path,
 --      rola app_owner zamieniona na postgres: różnice opisane w REVIEW.md, sekcja 4.
+--   3. Produkcja po wdrożeniu: wynik = prod_state_expected_after_2026-10-16.txt
+--      (stan po migracji zmierzony w CI na stosie Supabase, REVIEW.md, sekcja 11).
 with t as (
   select c.oid, c.relname from pg_catalog.pg_class c
    where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
