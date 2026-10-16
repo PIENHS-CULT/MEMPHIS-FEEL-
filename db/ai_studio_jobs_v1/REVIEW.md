@@ -4,7 +4,7 @@ projekt: PIENHS CULT OS
 modul: AI Studio MVP
 przedmiot: ai_studio_jobs_v1 — migracja, rollback, harness, zgodność z produkcją
 data: 2026-10-16
-status: PASS lokalnie (PostgreSQL 16.15 i 17.6); replika zgodna z produkcją; produkcja bez zmian
+status: PASS lokalnie i w CI (PostgreSQL 16, 17.6, stos Supabase); produkcja bez zmian
 tags: [pienhs-cult-os, ai-studio, supabase, migracja, testy, rls]
 ---
 
@@ -19,8 +19,8 @@ tags: [pienhs-cult-os, ai-studio, supabase, migracja, testy, rls]
 | Testy mutacyjne | 10/10 wykrytych, każda przez testy, których dotyczy |
 | Replika harnessu a produkcja | zgodna dla wszystkich obiektów migracji (odczyt 2026-10-16); 2 różnice środowiska (sekcja 4) |
 | Produkcja (`rfkngzzqnuejiawshwoz`) | bez zmian; 2 próby `apply_migration` anulowane w oknie potwierdzenia |
-| Audyt na środowisku Supabase | lokalny stos Supabase w CI (D6), wyniki: sekcja 11 |
-| CI GitHub Actions | `PIENHS-CULT/memphis-feel-`, gałąź `ai-studio/db-tests` (D7), wyniki: sekcja 11 |
+| Audyt na środowisku Supabase | PASS w CI: 15/15, API 29/29 (sekcja 11) |
+| CI GitHub Actions | PASS: `sql` 16 i 17.6, `supabase` (sekcja 11) |
 
 Wersje (sha256, 16 znaków): migracja `dbd35dff03cf8172` · rollback `8a2b75e69a7b47d1` · testy `90e2589f3ced9edb` · baseline `ffe7e90e1175ef86` · runner `b53e60b24d8b0ea3`.
 
@@ -125,6 +125,7 @@ Wynik: 214 wierszy identycznych. Różnice:
 Rola wykonująca na produkcji: `postgres` (NOSUPERUSER, BYPASSRLS) jest właścicielem tabel, `set_updated_at` i publikacji `supabase_realtime`. Wszystkie instrukcje migracji wykonuje się bez superusera. `postgres` jest członkiem `anon`, `authenticated`, `authenticator` i `service_role`.
 
 Bezpośrednio przed wdrożeniem: ponowne `prod_parity.sql` na produkcji. Wynik identyczny z `prod_state_2026-10-16.txt` oznacza brak dryfu.
+Po wdrożeniu: wynik identyczny z `prod_state_expected_after_2026-10-16.txt` (sekcja 11).
 
 ## 5. Rollback — zgodność z migracją
 
@@ -190,10 +191,13 @@ M3 pokazuje, że kontrola typu jest jedyną barierą: bez niej element bez `sect
 
 ## 8. Ograniczenia testów lokalnych (zakres D6)
 
+Pokryte w CI przez job `supabase` (sekcja 11):
 - event triggery platformy (sekcja 4),
 - PostgREST: mapowanie błędów SQL na HTTP, JWT, nagłówki, ekspozycja RPC,
-- Realtime: dostarczanie zmian jobów z filtrem RLS (lokalnie sprawdzane tylko członkostwo w publikacji),
+- Realtime: dostarczanie zmian jobów z filtrem RLS,
 - Auth: prawdziwi użytkownicy i tokeny.
+
+Poza zakresem testów: infrastruktura hostowana (sieć, Supavisor, limity planu Free) oraz dryf produkcji po 2026-10-16 (kontrola: `prod_parity.sql` bezpośrednio przed wdrożeniem).
 
 ## 9. Decyzje
 
@@ -220,13 +224,44 @@ Nie zmienia żadnego projektu Supabase.
 | 2. Weryfikacja rollbacku | wykonane (sekcja 5) |
 | 3. Harness: uprawnienia, stan, czas | wykonane (sekcja 6) |
 | 3b. Zgodność repliki z produkcją | wykonane, tylko odczyt (sekcja 4) |
-| 4. Testy PostgreSQL w CI | lokalnie PG 16.15 i 17.6 — PASS; GitHub Actions: sekcja 11 |
-| 4b. Audyt na środowisku Supabase | job `supabase` w CI: sekcja 11 |
-| 5. Wdrożenie | po PASS kroków 4 i 4b oraz po `prod_parity.sql` bez dryfu |
+| 4. Testy PostgreSQL w CI | PASS: PostgreSQL 16.15 i 17.6 (sekcja 11) |
+| 4b. Audyt na środowisku Supabase | PASS: lokalny stos Supabase w CI (sekcja 11) |
+| 5. Wdrożenie | do decyzji: `prod_parity.sql` bez dryfu → `apply_migration` (potwierdzenie w oknie) → `prod_parity.sql` = `prod_state_expected_after_2026-10-16.txt` |
 
 ## 11. Wyniki CI (GitHub Actions)
 
-Oczekują na pierwszy przebieg workflow `ai-studio-db-tests`.
+Przebieg: [ai-studio-db-tests 38844385603](https://github.com/PIENHS-CULT/MEMPHIS-FEEL-/actions/runs/38844385603), commit `ebdac48`, PR #23 (wersja robocza), 2026-10-16.
+
+| Job | Środowisko | Wynik |
+|---|---|---|
+| `sql (16)` | PostgreSQL 16.15 | 127/127 PASS, współbieżność 3/3 PASS |
+| `sql (17.6)` | PostgreSQL 17.6 | 127/127 PASS, współbieżność 3/3 PASS |
+| `supabase` | Supabase CLI 2.118.0: postgres 17.6.1.171, PostgREST v16.3, GoTrue v2.197.0, Realtime v2.135.3 | 15/15 PASS, API 29/29 PASS |
+
+Audyt na stosie Supabase:
+- Zgodność środowiska: stan „przed” = produkcja we wszystkich 232 wierszach `prod_parity.sql` (obiekty, rola, domyślne ACL, 6 event triggerów). Różnice z sekcji 4 tu nie występują.
+- Migracja 2x i rollback 2x przy aktywnych event triggerach platformy: PASS. Stan po rollbacku = „przed”, wiersze zachowane (4 joby, 2 wersje).
+- Stan po migracji: obiekty identyczne z lokalnym harnessem (207 wierszy). Zapisany jako `prod_state_expected_after_2026-10-16.txt` — wzorzec kontroli po wdrożeniu.
+- PostgREST z prawdziwymi JWT:
+  - `anon` i `authenticated` bez dostępu do `mgj_*`, tokenów i zapisu jobów oraz wersji (T01–T04, T08, T11–T13),
+  - RLS: tylko własne joby i wersje; UPDATE wyłącznie `notified_at` własnych jobów (T07, T09, T10, T21),
+  - backend `service_role`: create → dispatch → complete (T05, T06, T15–T18).
+- Realtime: A dostaje zmiany własnego joba (processing, completed), 0 zdarzeń joba B (T14, T19, T20).
+
+Mapowanie błędów przez PostgREST (zmierzone):
+
+| Komunikat | SQLSTATE | HTTP PostgREST |
+|---|---|---|
+| brak uprawnień (`anon` / `authenticated`) | 42501 | 401 / 403 |
+| `mgj_invalid_input` | 22023 | 400 |
+| `mgj_invalid_result` | 22023 | 400 |
+| `mgj_invalid_token` | 28000 | 403 |
+| `mgj_invalid_state` | P0001 | 400 |
+| `mgj_limit_active` | P0001 | 400 |
+| `mgj_project_not_found` | P0002 | 500 |
+| `mgj_job_not_found` | P0002 | 500 |
+
+Wniosek dla Edge Function (M2): statusu HTTP z PostgREST nie przekazywać klientowi (P0002 → 500). Edge Function mapuje błąd po komunikacie `mgj_*` (sekcja 2).
 
 ## Pliki
 
@@ -236,7 +271,7 @@ Oczekują na pierwszy przebieg workflow `ai-studio-db-tests`.
 | `ai_studio_jobs_v1.rollback.sql` | `db/ai_studio_jobs_v1/` |
 | `ai_studio_jobs_v1.tests.sql` | `db/ai_studio_jobs_v1/` |
 | `run_db_tests.sh` | `db/ai_studio_jobs_v1/` |
-| `prod_parity.sql`, `prod_state_2026-10-16.txt` | `db/ai_studio_jobs_v1/` |
+| `prod_parity.sql`, `prod_state_2026-10-16.txt`, `prod_state_expected_after_2026-10-16.txt` | `db/ai_studio_jobs_v1/` |
 | `baseline_prod_2026-10-16.sql` | `db/ai_studio_jobs_v1/` |
 | `run_supabase_audit.sh`, `api_audit.mjs`, `package.json`, `supabase/config.toml` | `db/ai_studio_jobs_v1/supabase_audit/` |
 | `REVIEW.md` (ten dokument) | `db/ai_studio_jobs_v1/` |

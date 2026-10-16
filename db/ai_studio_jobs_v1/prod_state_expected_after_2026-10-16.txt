@@ -1,0 +1,262 @@
+acl music_generation_job_tokens postgres DELETE
+acl music_generation_job_tokens postgres INSERT
+acl music_generation_job_tokens postgres MAINTAIN
+acl music_generation_job_tokens postgres REFERENCES
+acl music_generation_job_tokens postgres SELECT
+acl music_generation_job_tokens postgres TRIGGER
+acl music_generation_job_tokens postgres TRUNCATE
+acl music_generation_job_tokens postgres UPDATE
+acl music_generation_job_tokens service_role DELETE
+acl music_generation_job_tokens service_role INSERT
+acl music_generation_job_tokens service_role MAINTAIN
+acl music_generation_job_tokens service_role REFERENCES
+acl music_generation_job_tokens service_role SELECT
+acl music_generation_job_tokens service_role TRIGGER
+acl music_generation_job_tokens service_role TRUNCATE
+acl music_generation_job_tokens service_role UPDATE
+acl music_generation_jobs authenticated SELECT
+acl music_generation_jobs postgres DELETE
+acl music_generation_jobs postgres INSERT
+acl music_generation_jobs postgres MAINTAIN
+acl music_generation_jobs postgres REFERENCES
+acl music_generation_jobs postgres SELECT
+acl music_generation_jobs postgres TRIGGER
+acl music_generation_jobs postgres TRUNCATE
+acl music_generation_jobs postgres UPDATE
+acl music_generation_jobs service_role DELETE
+acl music_generation_jobs service_role INSERT
+acl music_generation_jobs service_role MAINTAIN
+acl music_generation_jobs service_role REFERENCES
+acl music_generation_jobs service_role SELECT
+acl music_generation_jobs service_role TRIGGER
+acl music_generation_jobs service_role TRUNCATE
+acl music_generation_jobs service_role UPDATE
+acl projects authenticated DELETE
+acl projects authenticated INSERT
+acl projects authenticated MAINTAIN
+acl projects authenticated REFERENCES
+acl projects authenticated SELECT
+acl projects authenticated TRIGGER
+acl projects authenticated TRUNCATE
+acl projects authenticated UPDATE
+acl projects postgres DELETE
+acl projects postgres INSERT
+acl projects postgres MAINTAIN
+acl projects postgres REFERENCES
+acl projects postgres SELECT
+acl projects postgres TRIGGER
+acl projects postgres TRUNCATE
+acl projects postgres UPDATE
+acl projects service_role DELETE
+acl projects service_role INSERT
+acl projects service_role MAINTAIN
+acl projects service_role REFERENCES
+acl projects service_role SELECT
+acl projects service_role TRIGGER
+acl projects service_role TRUNCATE
+acl projects service_role UPDATE
+acl prompt_versions authenticated DELETE
+acl prompt_versions authenticated MAINTAIN
+acl prompt_versions authenticated REFERENCES
+acl prompt_versions authenticated SELECT
+acl prompt_versions authenticated TRIGGER
+acl prompt_versions authenticated TRUNCATE
+acl prompt_versions postgres DELETE
+acl prompt_versions postgres INSERT
+acl prompt_versions postgres MAINTAIN
+acl prompt_versions postgres REFERENCES
+acl prompt_versions postgres SELECT
+acl prompt_versions postgres TRIGGER
+acl prompt_versions postgres TRUNCATE
+acl prompt_versions postgres UPDATE
+acl prompt_versions service_role DELETE
+acl prompt_versions service_role INSERT
+acl prompt_versions service_role MAINTAIN
+acl prompt_versions service_role REFERENCES
+acl prompt_versions service_role SELECT
+acl prompt_versions service_role TRIGGER
+acl prompt_versions service_role TRUNCATE
+acl prompt_versions service_role UPDATE
+cmt mgj_complete(uuid,text,jsonb) AI Studio: validate AI result (types, sizes, items), insert prompt_versions under project lock, close job. Idempotent replay; late result after timeout accepted. Service role only.
+cmt mgj_create(uuid,uuid,uuid,text,text,jsonb) AI Studio: create job (idempotent per user+request_id, ownership check, non-blank title/idea, limits 2 active / 10 per hour / 80 per month UTC, stale sweep 10 min). Service role only.
+cmt mgj_dispatch(uuid,text) AI Studio: queued -> processing, stores SHA-256 of one-time callback token. Service role only.
+cmt mgj_fail(uuid,text,text) AI Studio: mark job failed (token required for Make callbacks). Error code sanitized. Service role only.
+cmt music_generation_job_tokens SHA-256 of per-job callback tokens. Service role only. Plain tokens are never stored.
+cmt music_generation_jobs Tracks PIENHS CULT AI Studio generation requests, status, and notification state.
+cmt projects -
+cmt prompt_versions -
+cmt set_updated_at() -
+col music_generation_job_tokens.created_at timestamp with time zone nn=true def=now()
+col music_generation_job_tokens.job_id uuid nn=true def=-
+col music_generation_job_tokens.token_hash text nn=true def=-
+col music_generation_jobs.attempts integer nn=true def=0
+col music_generation_jobs.completed_at timestamp with time zone nn=false def=-
+col music_generation_jobs.created_at timestamp with time zone nn=true def=now()
+col music_generation_jobs.dispatched_at timestamp with time zone nn=false def=-
+col music_generation_jobs.error_code text nn=false def=-
+col music_generation_jobs.id uuid nn=true def=gen_random_uuid()
+col music_generation_jobs.idea text nn=true def=-
+col music_generation_jobs.input_payload jsonb nn=true def='{}'::jsonb
+col music_generation_jobs.notified_at timestamp with time zone nn=false def=-
+col music_generation_jobs.output_description text nn=false def=-
+col music_generation_jobs.output_tags text[] nn=true def='{}'::text[]
+col music_generation_jobs.project_id uuid nn=true def=-
+col music_generation_jobs.request_id uuid nn=true def=-
+col music_generation_jobs.result_prompt_version_id uuid nn=false def=-
+col music_generation_jobs.status text nn=true def='queued'::text
+col music_generation_jobs.updated_at timestamp with time zone nn=true def=now()
+col music_generation_jobs.user_id uuid nn=true def=-
+col music_generation_jobs.working_title text nn=true def=-
+col projects.concept jsonb nn=true def='{}'::jsonb
+col projects.created_at timestamp with time zone nn=true def=now()
+col projects.description text nn=false def=-
+col projects.fusion_genres text[] nn=true def='{}'::text[]
+col projects.id uuid nn=true def=gen_random_uuid()
+col projects.language text nn=false def=-
+col projects.moods text[] nn=true def='{}'::text[]
+col projects.musical_key text nn=false def=-
+col projects.primary_genre text nn=false def=-
+col projects.status text nn=true def='draft'::text
+col projects.target_bpm integer nn=false def=-
+col projects.title text nn=true def=-
+col projects.updated_at timestamp with time zone nn=true def=now()
+col projects.user_id uuid nn=true def=-
+col prompt_versions.created_at timestamp with time zone nn=true def=now()
+col prompt_versions.generation_metadata jsonb nn=true def='{}'::jsonb
+col prompt_versions.id uuid nn=true def=gen_random_uuid()
+col prompt_versions.model_name text nn=false def=-
+col prompt_versions.negative_prompt text nn=false def=-
+col prompt_versions.production_notes jsonb nn=true def='[]'::jsonb
+col prompt_versions.project_id uuid nn=true def=-
+col prompt_versions.prompt_text text nn=true def=-
+col prompt_versions.structure jsonb nn=true def='[]'::jsonb
+col prompt_versions.tags text[] nn=true def='{}'::text[]
+col prompt_versions.user_id uuid nn=true def=-
+col prompt_versions.version_number integer nn=true def=-
+col prompt_versions.vocal_instructions jsonb nn=true def='[]'::jsonb
+colacl music_generation_jobs.notified_at authenticated UPDATE
+con music_generation_job_tokens music_generation_job_tokens_job_id_fkey FOREIGN KEY (job_id) REFERENCES music_generation_jobs(id) ON DELETE CASCADE
+con music_generation_job_tokens music_generation_job_tokens_pkey PRIMARY KEY (job_id)
+con music_generation_job_tokens music_generation_job_tokens_token_hash_check CHECK ((token_hash ~ '^[0-9a-f]{64}$'::text))
+con music_generation_jobs music_generation_jobs_attempts_check CHECK ((attempts >= 0))
+con music_generation_jobs music_generation_jobs_idea_check CHECK (((char_length(idea) >= 1) AND (char_length(idea) <= 5000)))
+con music_generation_jobs music_generation_jobs_pkey PRIMARY KEY (id)
+con music_generation_jobs music_generation_jobs_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+con music_generation_jobs music_generation_jobs_result_prompt_version_id_fkey FOREIGN KEY (result_prompt_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL
+con music_generation_jobs music_generation_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'processing'::text, 'completed'::text, 'failed'::text])))
+con music_generation_jobs music_generation_jobs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+con music_generation_jobs music_generation_jobs_user_id_request_id_key UNIQUE (user_id, request_id)
+con music_generation_jobs music_generation_jobs_working_title_check CHECK (((char_length(working_title) >= 1) AND (char_length(working_title) <= 120)))
+con projects projects_pkey PRIMARY KEY (id)
+con projects projects_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'archived'::text])))
+con projects projects_target_bpm_check CHECK (((target_bpm >= 40) AND (target_bpm <= 240)))
+con projects projects_title_check CHECK (((char_length(title) >= 1) AND (char_length(title) <= 120)))
+con projects projects_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+con prompt_versions prompt_versions_pkey PRIMARY KEY (id)
+con prompt_versions prompt_versions_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+con prompt_versions prompt_versions_project_id_version_number_key UNIQUE (project_id, version_number)
+con prompt_versions prompt_versions_prompt_text_check CHECK (((char_length(prompt_text) >= 1) AND (char_length(prompt_text) <= 12000)))
+con prompt_versions prompt_versions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+con prompt_versions prompt_versions_version_number_check CHECK ((version_number > 0))
+dacl public S anon SELECT
+dacl public S anon UPDATE
+dacl public S anon USAGE
+dacl public S authenticated SELECT
+dacl public S authenticated UPDATE
+dacl public S authenticated USAGE
+dacl public S postgres SELECT
+dacl public S postgres UPDATE
+dacl public S postgres USAGE
+dacl public S service_role SELECT
+dacl public S service_role UPDATE
+dacl public S service_role USAGE
+dacl public f anon EXECUTE
+dacl public f authenticated EXECUTE
+dacl public f postgres EXECUTE
+dacl public f service_role EXECUTE
+dacl public r anon DELETE
+dacl public r anon INSERT
+dacl public r anon MAINTAIN
+dacl public r anon REFERENCES
+dacl public r anon SELECT
+dacl public r anon TRIGGER
+dacl public r anon TRUNCATE
+dacl public r anon UPDATE
+dacl public r authenticated DELETE
+dacl public r authenticated INSERT
+dacl public r authenticated MAINTAIN
+dacl public r authenticated REFERENCES
+dacl public r authenticated SELECT
+dacl public r authenticated TRIGGER
+dacl public r authenticated TRUNCATE
+dacl public r authenticated UPDATE
+dacl public r postgres DELETE
+dacl public r postgres INSERT
+dacl public r postgres MAINTAIN
+dacl public r postgres REFERENCES
+dacl public r postgres SELECT
+dacl public r postgres TRIGGER
+dacl public r postgres TRUNCATE
+dacl public r postgres UPDATE
+dacl public r service_role DELETE
+dacl public r service_role INSERT
+dacl public r service_role MAINTAIN
+dacl public r service_role REFERENCES
+dacl public r service_role SELECT
+dacl public r service_role TRIGGER
+dacl public r service_role TRUNCATE
+dacl public r service_role UPDATE
+evt issue_graphql_placeholder sql_drop set_graphql_placeholder() enabled=O
+evt issue_pg_cron_access ddl_command_end grant_pg_cron_access() enabled=O
+evt issue_pg_graphql_access ddl_command_end grant_pg_graphql_access() enabled=O
+evt issue_pg_net_access ddl_command_end grant_pg_net_access() enabled=O
+evt pgrst_ddl_watch ddl_command_end pgrst_ddl_watch() enabled=O
+evt pgrst_drop_watch sql_drop pgrst_drop_watch() enabled=O
+fn mgj_complete(uuid,text,jsonb) secdef=false owner=postgres cfg=search_path="" src=f6e1bee3633bdb56ba6c67b3f51df3b1
+fn mgj_create(uuid,uuid,uuid,text,text,jsonb) secdef=false owner=postgres cfg=search_path="" src=5b8e9a641a3f632a922ae72f042a0b5a
+fn mgj_dispatch(uuid,text) secdef=false owner=postgres cfg=search_path="" src=5a4c3dbe7b0922fb3998a64be3677fc4
+fn mgj_fail(uuid,text,text) secdef=false owner=postgres cfg=search_path="" src=0ded75f5b6dc51f43e6923a6ca515910
+fn set_updated_at() secdef=false owner=postgres cfg=search_path=public src=9b1889f56258bf9d6554213c05019c76
+fnacl mgj_complete(uuid,text,jsonb) postgres EXECUTE
+fnacl mgj_complete(uuid,text,jsonb) service_role EXECUTE
+fnacl mgj_create(uuid,uuid,uuid,text,text,jsonb) postgres EXECUTE
+fnacl mgj_create(uuid,uuid,uuid,text,text,jsonb) service_role EXECUTE
+fnacl mgj_dispatch(uuid,text) postgres EXECUTE
+fnacl mgj_dispatch(uuid,text) service_role EXECUTE
+fnacl mgj_fail(uuid,text,text) postgres EXECUTE
+fnacl mgj_fail(uuid,text,text) service_role EXECUTE
+fnacl set_updated_at() PUBLIC EXECUTE
+fnacl set_updated_at() anon EXECUTE
+fnacl set_updated_at() authenticated EXECUTE
+fnacl set_updated_at() postgres EXECUTE
+fnacl set_updated_at() service_role EXECUTE
+idx CREATE INDEX music_generation_jobs_project_id_idx ON public.music_generation_jobs USING btree (project_id)
+idx CREATE INDEX music_generation_jobs_result_prompt_version_id_idx ON public.music_generation_jobs USING btree (result_prompt_version_id)
+idx CREATE INDEX music_generation_jobs_status_created_idx ON public.music_generation_jobs USING btree (status, created_at)
+idx CREATE INDEX music_generation_jobs_user_created_idx ON public.music_generation_jobs USING btree (user_id, created_at DESC)
+idx CREATE INDEX projects_user_id_updated_at_idx ON public.projects USING btree (user_id, updated_at DESC)
+idx CREATE INDEX prompt_versions_project_id_created_at_idx ON public.prompt_versions USING btree (project_id, created_at DESC)
+idx CREATE INDEX prompt_versions_user_id_idx ON public.prompt_versions USING btree (user_id)
+idx CREATE UNIQUE INDEX music_generation_job_tokens_pkey ON public.music_generation_job_tokens USING btree (job_id)
+idx CREATE UNIQUE INDEX music_generation_jobs_pkey ON public.music_generation_jobs USING btree (id)
+idx CREATE UNIQUE INDEX music_generation_jobs_user_id_request_id_key ON public.music_generation_jobs USING btree (user_id, request_id)
+idx CREATE UNIQUE INDEX projects_pkey ON public.projects USING btree (id)
+idx CREATE UNIQUE INDEX prompt_versions_pkey ON public.prompt_versions USING btree (id)
+idx CREATE UNIQUE INDEX prompt_versions_project_id_version_number_key ON public.prompt_versions USING btree (project_id, version_number)
+pol music_generation_jobs Users can mark own jobs notified PERMISSIVE UPDATE authenticated (( SELECT auth.uid() AS uid) = user_id) (( SELECT auth.uid() AS uid) = user_id)
+pol music_generation_jobs Users can read their own music generation jobs PERMISSIVE SELECT authenticated (( SELECT auth.uid() AS uid) = user_id) -
+pol projects projects_delete_own PERMISSIVE DELETE authenticated (( SELECT auth.uid() AS uid) = user_id) -
+pol projects projects_insert_own PERMISSIVE INSERT authenticated - (( SELECT auth.uid() AS uid) = user_id)
+pol projects projects_select_own PERMISSIVE SELECT authenticated (( SELECT auth.uid() AS uid) = user_id) -
+pol projects projects_update_own PERMISSIVE UPDATE authenticated (( SELECT auth.uid() AS uid) = user_id) (( SELECT auth.uid() AS uid) = user_id)
+pol prompt_versions prompt_versions_delete_own PERMISSIVE DELETE authenticated (( SELECT auth.uid() AS uid) = user_id) -
+pol prompt_versions prompt_versions_select_own PERMISSIVE SELECT authenticated (( SELECT auth.uid() AS uid) = user_id) -
+pub supabase_realtime music_generation_jobs
+pubown supabase_realtime postgres alltables=false
+role postgres super=false bypassrls=true
+tbl music_generation_job_tokens rls=true force=false owner=postgres
+tbl music_generation_jobs rls=true force=false owner=postgres
+tbl projects rls=true force=false owner=postgres
+tbl prompt_versions rls=true force=false owner=postgres
+trg CREATE TRIGGER music_generation_jobs_set_updated_at BEFORE UPDATE ON public.music_generation_jobs FOR EACH ROW EXECUTE FUNCTION set_updated_at() enabled=O
+trg CREATE TRIGGER projects_set_updated_at BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION set_updated_at() enabled=O
