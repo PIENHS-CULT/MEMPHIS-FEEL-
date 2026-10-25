@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AppView } from './types';
 import LandingPage from './components/LandingPage';
 import Catalog from './components/Catalog';
@@ -44,6 +45,7 @@ const App: React.FC = () => {
       <>
         <LandingPage onEnter={() => setView('catalog')} />
         <Analytics />
+        <SpeedInsights />
       </>
     );
   }
@@ -58,6 +60,7 @@ const App: React.FC = () => {
         </main>
       </div>
       <Analytics />
+      <SpeedInsights />
     </div>
   );
 };
