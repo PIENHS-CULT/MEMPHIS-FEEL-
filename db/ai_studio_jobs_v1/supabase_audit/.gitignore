@@ -1,0 +1,4 @@
+node_modules/
+out/
+supabase/.temp/
+supabase/.branches/

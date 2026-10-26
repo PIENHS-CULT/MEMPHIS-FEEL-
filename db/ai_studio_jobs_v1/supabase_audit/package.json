@@ -1,0 +1,9 @@
+{
+  "name": "ai-studio-supabase-audit",
+  "private": true,
+  "type": "module",
+  "description": "PIENHS CULT OS / AI Studio MVP: audyt API ai_studio_jobs_v1 na lokalnym stosie Supabase",
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.2"
+  }
+}
